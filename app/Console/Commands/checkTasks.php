@@ -3,7 +3,8 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
-use Mail;
+use Illuminate\Support\Facades\Log;
+use App\Services\StatusNotificationService;
 
 class checkTasks extends Command
 {
@@ -21,6 +22,14 @@ class checkTasks extends Command
      */
     protected $description = 'Check all Tasks and Trigger the in a Intervall';
 
+    private $statusNotificationService;
+
+    public function __construct(StatusNotificationService $statusNotificationService)
+    {
+        parent::__construct();
+        $this->statusNotificationService = $statusNotificationService;
+    }
+
     /**
      * Execute the console command.
      *
@@ -33,55 +42,127 @@ class checkTasks extends Command
         $now = \Carbon\Carbon::now();
 
         foreach($tasks as $task) {
-
-            $nodestat = \App\Nodestat::where('node_id', $task->node_id)->first();
-
-            if (isset($nodestat)) {
-
-                if ($nodestat->isonline == 1) {
-                    if (!empty($task->offlinesince)) {
-                        $task->offlinesince = null;
-
-                        $user = \App\User::findOrFail($task->user_id);
-                        Mail::send('emails.alarm-backonline', ['user' => $user, 'task' => $task], function ($m) use ($user, $task) {
-                            $m->to($user->email, $user->name)->subject($task->node->name . ' is back online!');
-                        });
-                    }
-                } else {
-                    if (empty($task->offlinesince)) {
-                        $task->offlinesince = $now;
-                    }
-
-                    $checkdate = \Carbon\Carbon::createFromFormat('Y-m-d H:i:s', $task->offlinesince);
-                    $intervall = \Carbon\Carbon::createFromFormat('Y-m-d H:i:s', $task->intervall);
-                    $checkdate->addHours($intervall->hour)->addMinutes($intervall->minute);
-
-                    if ($checkdate->lte($now)) {
-
-                        // wenn letzter alarm und lastrun identisch, war node bisher nichtmehr online => next task
-                        if ($task->lastalert != null && $task->lastrun == $task->lastalert) {
-                            continue;
-                        }
-
-                        $user = \App\User::findOrFail($task->user_id);
-                        Mail::send('emails.alarm', ['user' => $user, 'task' => $task], function ($m) use ($user, $task) {
-                            $m->to($user->email, $user->name)->subject($task->node->name . ' is Offline!');
-                        });
-
-                        if ($task->smsalarm == 0 && !empty($user->mobilenumber)) {
-                            //TODO: write sms
-                        }
-
-                        \App\Alert::insert(['task_id' => $task->id]);
-
-                        $task->lastalert = $now;
-
-                    }
-
-                }
-                $task->lastrun = $now;
-                $task->save();
-            }
+            $this->task = $task;
+            $this->checkTask();
         }
     }
+
+    private function checkTask()
+    {
+        Log::debug('Running task #' . $this->task->id . ' for node ' . $this->task->node->name);
+        $this->nodestat = $this->task->nodestat;
+
+        if (!$this->nodestat) {
+            Log::warning('No node stat found for node ' . $this->task->node->name);
+            return;
+        }
+
+        if ($this->nodestat->isonline) {
+            $this->checkOnlineNode();
+        } else {
+            $this->checkOfflineNode();
+        }
+
+        $this->task->save();
+    }
+
+    private function checkOnlineNode()
+    {
+        Log::debug('Node is online');
+        $this->markTaskAsOnline();
+
+        if ($this->isTaskMarkedAsOffline()) {
+            // TODO: avoid sending notification when node was not offline since at least check interval
+            $this->statusNotificationService->notifyUp($this->task);
+        }
+
+        $this->setTaskLastRunTimeToNow();
+    }
+
+    private function checkOfflineNode()
+    {
+        Log::debug('Node is offline');
+
+        if ($this->hasTaskAlertBeenSentForCurrentOfflinePeriod()) {
+            Log::debug('Node is offline and alert has already been sent');
+            return;
+        }
+
+        $this->markTaskAsOfflineSinceNow();
+
+        if ($this->isTaskOfflineSinceAtLeastCheckInterval()) {
+            $this->statusNotificationService->notifyDown($this->task);
+            $this->addOfflineAlertToDatabase();
+        }
+
+        $this->setTaskLastRunTimeToNow();
+    }
+
+    private function addOfflineAlertToDatabase()
+    {
+        \App\Alert::insert(['task_id' => $this->task->id]);
+        $this->setTaskLastAlertTimeToNow();
+    }
+
+    public function markTaskAsOnline()
+    {
+        $this->task->offlinesince = null;
+    }
+
+    /**
+     * Mark this task as being offline since now.
+     *
+     * If the task is already offline, this function does nothing.
+     * In particular, it will not overwrite the time since when the
+     * node is offline.
+     */
+    public function markTaskAsOfflineSinceNow() 
+    {
+        if ($this->isTaskMarkedAsOffline()) {
+            Log::debug('markTaskAsOfflineSinceNow: Node is already marked as offline');
+            return;
+        }
+
+        $this->task->offlinesince = \Carbon\Carbon::now();
+    }
+
+    public function isTaskMarkedAsOffline()
+    {
+        return !empty($this->task->offlinesince);
+    }
+
+    public function isTaskOfflineSinceAtLeastCheckInterval()
+    {
+        if (!$this->task->offlinesince) {
+            return;
+        }
+
+        $now = \Carbon\Carbon::now();
+
+        $checkdate = \Carbon\Carbon::createFromFormat('Y-m-d H:i:s', $this->task->offlinesince);
+        $intervall = \Carbon\Carbon::createFromFormat('Y-m-d H:i:s', $this->task->intervall);
+        $checkdate->addHours($intervall->hour)->addMinutes($intervall->minute);
+
+        return $checkdate->lte($now);
+    }
+
+    public function hasTaskAlertBeenSentForCurrentOfflinePeriod()
+    {
+        if ($this->task->lastalert == null) {
+            return false;
+        }
+
+        return $this->task->lastrun == $this->task->lastalert;
+    }
+
+    public function setTaskLastAlertTimeToNow()
+    {
+        $this->task->lastalert = \Carbon\Carbon::now();
+    }
+
+    public function setTaskLastRunTimeToNow()
+    {
+        $this->task->lastrun = \Carbon\Carbon::now();
+    }
+
 }

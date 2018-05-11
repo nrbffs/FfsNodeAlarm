@@ -19,4 +19,10 @@ class Task extends Model
     {
         return $this->hasOne(\App\Node::class, 'id', 'node_id');
     }
+
+    public function nodestat()
+    {
+        return $this->hasOne(\App\Nodestat::class, 'id', 'node_id');
+    }
+
 }
