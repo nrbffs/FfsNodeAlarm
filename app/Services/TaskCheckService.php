@@ -74,7 +74,7 @@ class TaskCheckService
         $this->setTaskLastAlertTimeToNow();
     }
 
-    public function markTaskAsOnline()
+    private function markTaskAsOnline()
     {
         $this->task->offlinesince = null;
     }
@@ -86,7 +86,7 @@ class TaskCheckService
      * In particular, it will not overwrite the time since when the
      * node is offline.
      */
-    public function markTaskAsOfflineSinceNow() 
+    private function markTaskAsOfflineSinceNow() 
     {
         if ($this->isTaskMarkedAsOffline()) {
             Log::debug('markTaskAsOfflineSinceNow: Node is already marked as offline');
@@ -96,12 +96,12 @@ class TaskCheckService
         $this->task->offlinesince = \Carbon\Carbon::now();
     }
 
-    public function isTaskMarkedAsOffline()
+    private function isTaskMarkedAsOffline()
     {
         return !empty($this->task->offlinesince);
     }
 
-    public function isTaskOfflineSinceAtLeastCheckInterval()
+    private function isTaskOfflineSinceAtLeastCheckInterval()
     {
         if (!$this->task->offlinesince) {
             return;
@@ -116,7 +116,7 @@ class TaskCheckService
         return $checkdate->lte($now);
     }
 
-    public function hasTaskAlertBeenSentForCurrentOfflinePeriod()
+    private function hasTaskAlertBeenSentForCurrentOfflinePeriod()
     {
         if ($this->task->lastalert == null) {
             return false;
@@ -125,12 +125,12 @@ class TaskCheckService
         return $this->task->lastrun == $this->task->lastalert;
     }
 
-    public function setTaskLastAlertTimeToNow()
+    private function setTaskLastAlertTimeToNow()
     {
         $this->task->lastalert = \Carbon\Carbon::now();
     }
 
-    public function setTaskLastRunTimeToNow()
+    private function setTaskLastRunTimeToNow()
     {
         $this->task->lastrun = \Carbon\Carbon::now();
     }
