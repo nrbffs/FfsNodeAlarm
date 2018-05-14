@@ -17,7 +17,7 @@ class StatusNotificationService
     {
         $this->fetchTaskData($task);
 
-        $this->sendNotificationMail('emails.alarm');
+        $this->sendNotificationMail('emails.alarm-backonline');
     }
 
     private function fetchTaskData($task)
