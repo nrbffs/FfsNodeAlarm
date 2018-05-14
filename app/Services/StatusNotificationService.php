@@ -10,14 +10,16 @@ class StatusNotificationService
     {
         $this->fetchTaskData($task);
 
-        $this->sendNotificationMail('emails.alarm');
+        $subject = $this->task->node->name . ' is Offline!';
+        $this->sendNotificationMail($subject, 'emails.alarm');
     }
 
     public function notifyUp($task)
     {
         $this->fetchTaskData($task);
 
-        $this->sendNotificationMail('emails.alarm-backonline');
+        $subject = $this->task->node->name . ' is back Online!';
+        $this->sendNotificationMail($subject, 'emails.alarm-backonline');
     }
 
     private function fetchTaskData($task)
@@ -26,15 +28,14 @@ class StatusNotificationService
         $this->user = \App\User::findOrFail($task->user_id);
     }
 
-    private function sendNotificationMail($template)
+    private function sendNotificationMail($subject, $template)
     {
         $templateVariables = ['user' => $this->user, 'task' => $this->task];
         $emailRecipientAddress = $this->user->email;
         $emailRecipientName = $this->user->name;
-        $nodeName = $this->task->node->name;
 
-        Mail::send($template, $templateVariables, function ($m) use ($emailRecipientAddress, $emailRecipientName, $nodeName) {
-            $m->to($emailRecipientAddress, $emailRecipientName)->subject($nodeName . ' is Offline!');
+        Mail::send($template, $templateVariables, function ($m) use ($emailRecipientAddress, $emailRecipientName, $subject) {
+            $m->to($emailRecipientAddress, $emailRecipientName)->subject($subject);
         });
     }
 
