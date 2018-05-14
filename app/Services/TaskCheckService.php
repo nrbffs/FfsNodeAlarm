@@ -39,12 +39,12 @@ class TaskCheckService
     private function checkOnlineNode()
     {
         Log::debug('Node is online');
-        $this->markTaskAsOnline();
 
-        if ($this->isTaskMarkedAsOffline()) {
-            // TODO: avoid sending notification when node was not offline since at least check interval
+        if ($this->isTaskMarkedAsOffline() && $this->hasTaskAlertBeenSentForCurrentOfflinePeriod()) {
             $this->statusNotificationService->notifyUp($this->task);
         }
+
+        $this->markTaskAsOnline();
 
         $this->setTaskLastRunTimeToNow();
     }
